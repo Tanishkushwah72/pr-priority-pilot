@@ -4,21 +4,30 @@ import random
 import requests
 import sys
 
-# ---------- Environment variables ----------
-API_BASE = os.environ.get("API_BASE_URL", "")
-MODEL_NAME = os.environ.get("MODEL_NAME", "")
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+# ---------- Environment variables (validator injects these) ----------
+API_BASE_URL = os.environ.get("API_BASE_URL", "")
+API_KEY = os.environ.get("API_KEY", "")          # ← correct name
 SPACE_URL = os.environ.get("SPACE_URL", "https://tanishkushwah72-verity-human-verification.hf.space")
 
-# ---------- Try to import OpenAI, fallback to mock ----------
+# Optional: MODEL_NAME may also be provided
+MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4.1-mini")
+
+# ---------- Initialize OpenAI client with proxy credentials ----------
+USE_MOCK = False
 try:
     from openai import OpenAI
-    USE_MOCK = not (API_BASE and MODEL_NAME and HF_TOKEN)
+    if API_BASE_URL and API_KEY:
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        USE_MOCK = False
+    else:
+        USE_MOCK = True
+        client = None
 except ImportError:
-    OpenAI = None
     USE_MOCK = True
+    client = None
 
 def llm_priority_mock(obs):
+    """Fallback when proxy credentials are missing (local testing only)."""
     text = (obs.get("pr_title", "") + " " + obs.get("pr_description", "")).lower()
     if "urgent" in text or "critical" in text or "security" in text or "hotfix" in text:
         return 2
@@ -28,10 +37,11 @@ def llm_priority_mock(obs):
         return 0
 
 def llm_priority(obs):
+    """Call the LLM through the provided proxy, or fallback to mock."""
     if USE_MOCK:
+        print("⚠️ Using mock LLM (no proxy credentials)", file=sys.stderr)
         return llm_priority_mock(obs)
     try:
-        client = OpenAI(base_url=API_BASE, api_key=HF_TOKEN)
         prompt = f"""PR Title: {obs.get('pr_title', '')}
 Description: {obs.get('pr_description', '')}
 Files changed: {obs.get('files_changed', 0)}
@@ -44,16 +54,17 @@ Return only an integer 0 (Low), 1 (Medium), or 2 (High)."""
             temperature=0,
             max_tokens=5
         )
-        return int(resp.choices[0].message.content.strip())
+        answer = resp.choices[0].message.content.strip()
+        return int(answer)
     except Exception as e:
-        print(f"LLM error: {e}, using mock", file=sys.stderr)
+        print(f"LLM error: {e}, using mock fallback", file=sys.stderr)
         return llm_priority_mock(obs)
 
 def evaluate_task(task, episodes=3):
     base_url = SPACE_URL.rstrip('/')
     total_reward = 0.0
     try:
-        # First reset to get a session
+        # Reset to get a session
         reset_resp = requests.post(f"{base_url}/reset", json={"task": task}, timeout=10)
         if reset_resp.status_code != 200:
             print(f"Reset failed for {task}: {reset_resp.text}", file=sys.stderr)
@@ -61,14 +72,14 @@ def evaluate_task(task, episodes=3):
         session_id = reset_resp.json()["session_id"]
 
         for ep in range(episodes):
-            # Get a new PR (reset again)
+            # Get a new PR
             pr_resp = requests.post(f"{base_url}/reset", json={"session_id": session_id, "task": task}, timeout=10)
             if pr_resp.status_code != 200:
                 print(f"PR reset failed: {pr_resp.text}", file=sys.stderr)
                 continue
             obs = pr_resp.json()["observation"]
             action = llm_priority(obs)
-            # CORRECT API CALL: session_id as query param, priority in JSON body
+            # Correct API call: query param + body with priority
             step_resp = requests.post(
                 f"{base_url}/step?session_id={session_id}",
                 json={"priority": action},
