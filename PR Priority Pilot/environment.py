@@ -16,22 +16,22 @@ class State(BaseModel):
     observation: Optional[Observation]
     done: bool
 
-# Three tasks (easy, medium, hard) each with 3 examples
+# Three tasks, each with 3 PRs
 TASKS = {
     "easy": [
-        {"title": "Fix typo in README", "desc": "Corrected spelling", "files": 1, "labels": ["docs"], "author": "junior", "truth": 0},
-        {"title": "Add new feature toggle", "desc": "Minor feature", "files": 2, "labels": ["feature"], "author": "mid", "truth": 1},
-        {"title": "URGENT: Fix login crash", "desc": "Hotfix for production", "files": 1, "labels": ["bug","urgent"], "author": "senior", "truth": 2}
+        {"title": "Fix typo", "desc": "Typo fix", "files": 1, "labels": ["docs"], "author": "junior", "truth": 0},
+        {"title": "Add feature", "desc": "New toggle", "files": 2, "labels": ["feature"], "author": "mid", "truth": 1},
+        {"title": "Urgent fix", "desc": "Crash fix", "files": 1, "labels": ["urgent"], "author": "senior", "truth": 2}
     ],
     "medium": [
-        {"title": "Security patch for SQL injection", "desc": "Critical vulnerability", "files": 3, "labels": ["security"], "author": "sec", "truth": 2},
-        {"title": "Refactor logging module", "desc": "Code cleanup", "files": 12, "labels": ["refactor"], "author": "senior", "truth": 1},
-        {"title": "Update button styles", "desc": "UI tweak", "files": 2, "labels": ["ui"], "author": "junior", "truth": 0}
+        {"title": "Security patch", "desc": "SQL injection", "files": 3, "labels": ["security"], "author": "sec", "truth": 2},
+        {"title": "Refactor", "desc": "Code cleanup", "files": 12, "labels": ["refactor"], "author": "senior", "truth": 1},
+        {"title": "UI update", "desc": "Button style", "files": 2, "labels": ["ui"], "author": "junior", "truth": 0}
     ],
     "hard": [
-        {"title": "HOTFIX: Payment gateway timeout", "desc": "Customers cannot pay", "files": 4, "labels": ["critical","bug"], "author": "lead", "truth": 2},
-        {"title": "Migrate database schema", "desc": "Add columns, no downtime", "files": 8, "labels": ["database"], "author": "backend", "truth": 1},
-        {"title": "Update dependencies", "desc": "Regular maintenance", "files": 15, "labels": ["dependencies"], "author": "bot", "truth": 0}
+        {"title": "Hotfix payment", "desc": "Timeout", "files": 4, "labels": ["critical"], "author": "lead", "truth": 2},
+        {"title": "DB migration", "desc": "Add columns", "files": 8, "labels": ["database"], "author": "backend", "truth": 1},
+        {"title": "Dependency update", "desc": "Bump versions", "files": 15, "labels": ["deps"], "author": "bot", "truth": 0}
     ]
 }
 
@@ -59,23 +59,23 @@ class CodeReviewEnv:
 
     def step(self, action: Action) -> Tuple[Observation, float, bool, dict]:
         if self.done:
-            raise RuntimeError("Episode already done")
+            raise RuntimeError("Already done")
         pred = action.priority
         truth = self.current["truth"]
-        # Base reward strictly between 0 and 1
+        # Base reward
         if pred == truth:
-            base = 0.8
+            base = 0.85
         elif abs(pred - truth) == 1:
-            base = 0.5
+            base = 0.55
         else:
-            base = 0.2
-        # Add tiny deterministic noise to avoid exact 0.0/1.0
-        noise = (hash(self.current["title"]) % 10) / 100.0  # 0.00 to 0.09
-        reward = base + noise
-        # Clamp to (0.01, 0.99)
+            base = 0.25
+        # Add a tiny, deterministic offset (never 0.0 or 1.0)
+        offset = (hash(self.current["title"]) % 100) / 1000.0  # 0.000 to 0.099
+        reward = base + offset
+        # Clamp to safe range
         reward = max(0.01, min(0.99, reward))
         self.done = True
-        # Return a new observation (next PR)
+        # Return a new PR for the next step
         next_obs = self.reset()
         info = {"true_priority": truth, "explanation": "ok"}
         return next_obs, reward, self.done, info
