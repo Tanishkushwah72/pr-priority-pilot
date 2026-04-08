@@ -1,6 +1,6 @@
 name: pr-priority-pilot
 version: 1.0
-description: Real-world code review prioritization with 3 difficulty tasks
+description: Code review prioritizer with 3 tasks
 actions: Discrete(3)
 observations:
   pr_title: string
@@ -8,7 +8,10 @@ observations:
   files_changed: int
   labels: list
   author: string
-tasks: [easy, medium, hard]
+tasks:
+  - easy
+  - medium
+  - hard
 endpoints:
   reset: /reset
   step: /step
